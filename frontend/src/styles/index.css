@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #ffffff;
+  --bg2: #f5f5f5;
+  --text: #111111;
+  --text2: #666666;
+  --border: #e5e5e5;
+  --btn: #080808;
+  --btn-text: #ffffff;
+}
+
+.dark {
+  --bg: #080808;
+  --bg2: #151515;
+  --text: #ffffff;
+  --text2: #a0a0a0;
+  --border: #292929;
+  --btn: #ffffff;
+  --btn-text: #080808;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-6 py-3 text-sm font-medium tracking-wide uppercase transition-all duration-200;
+    background-color: var(--btn);
+    color: var(--btn-text);
+  }
+  .btn-primary:hover {
+    opacity: 0.85;
+  }
+  .btn-outline {
+    @apply inline-flex items-center justify-center px-6 py-3 text-sm font-medium tracking-wide uppercase border transition-all duration-200;
+    border-color: var(--border);
+    color: var(--text);
+  }
+  .btn-outline:hover {
+    background-color: var(--bg2);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
