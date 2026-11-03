@@ -15,11 +15,8 @@ import { Sun, Moon } from 'lucide-react'
 const nav = [
   { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/admin/products', label: 'Products', icon: Package },
+  { to: '/admin/categories', label: 'Categories', icon: Tag },
   { to: '/admin/orders', label: 'Orders', icon: ShoppingCart },
-  { to: '/admin/customers', label: 'Customers', icon: Users },
-  { to: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: '/admin/media', label: 'Media', icon: Image },
-  { to: '/admin/discounts', label: 'Discounts', icon: Tag },
   { to: '/admin/settings', label: 'Settings', icon: Settings },
 ]
 

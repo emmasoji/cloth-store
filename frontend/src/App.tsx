@@ -8,6 +8,10 @@ import Contact from './pages/Contact/Contact'
 import Account from './pages/Account/Account'
 import AdminLayout from './admin/components/AdminLayout'
 import AdminDashboard from './admin/dashboard/Dashboard'
+import ProductsPage from './admin/products/ProductsPage'
+import OrdersPage from './admin/orders/OrdersPage'
+import SettingsPage from './admin/settings/SettingsPage'
+import CategoriesPage from './admin/categories/CategoriesPage'
 import { CartProvider } from './contexts/CartContext'
 import { ToastProvider } from './contexts/ToastContext'
 import ScrollToTop from './components/common/ScrollToTop'
@@ -25,8 +29,10 @@ export default function App() {
             <Routes location={location} key="admin">
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<AdminDashboard />} />
-                <Route path="products" element={<AdminDashboard />} />
-                <Route path="orders" element={<AdminDashboard />} />
+                <Route path="products" element={<ProductsPage />} />
+                <Route path="categories" element={<CategoriesPage />} />
+                <Route path="orders" element={<OrdersPage />} />
+                <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<AdminDashboard />} />
               </Route>
             </Routes>
