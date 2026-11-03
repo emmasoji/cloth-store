@@ -10,6 +10,11 @@
   --border: #e5e5e5;
   --btn: #080808;
   --btn-text: #ffffff;
+  --accent: #D23735;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+  --font: "Satoshi", system-ui, -apple-system, sans-serif;
 }
 
 .dark {
@@ -20,6 +25,7 @@
   --border: #292929;
   --btn: #ffffff;
   --btn-text: #080808;
+  --accent: #D23735;
 }
 
 html {
@@ -29,7 +35,19 @@ html {
 body {
   background-color: var(--bg);
   color: var(--text);
-  font-family: Inter, system-ui, sans-serif;
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}
+
+/* Headers — accent colour + Satoshi (admin + storefront) */
+h1, h2, h3, h4, h5, h6,
+.font-display,
+.admin-heading {
+  font-family: var(--font);
+  color: var(--accent);
+  letter-spacing: -0.02em;
+  font-weight: 600;
 }
 
 @layer components {
@@ -37,21 +55,141 @@ body {
     @apply inline-flex items-center justify-center px-6 py-3 text-sm font-medium tracking-wide uppercase transition-all duration-200;
     background-color: var(--btn);
     color: var(--btn-text);
+    border-radius: var(--radius-sm);
   }
   .btn-primary:hover {
-    opacity: 0.85;
+    opacity: 0.88;
   }
   .btn-outline {
     @apply inline-flex items-center justify-center px-6 py-3 text-sm font-medium tracking-wide uppercase border transition-all duration-200;
     border-color: var(--border);
     color: var(--text);
+    border-radius: var(--radius-sm);
   }
   .btn-outline:hover {
     background-color: var(--bg2);
   }
+
+  .field {
+    @apply w-full px-3.5 py-2.5 text-sm outline-none transition-colors duration-150;
+    background-color: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: var(--radius-sm);
+    font-family: var(--font);
+  }
+  .field:focus {
+    border-color: var(--text);
+    background-color: var(--bg);
+  }
+  .field::placeholder {
+    color: var(--text2);
+    opacity: 0.7;
+  }
+
+  .field-select {
+    @apply field appearance-none cursor-pointer pr-10;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666666' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+  }
+  .dark .field-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  }
+
+  .surface {
+    background-color: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .dropzone {
+    @apply flex flex-col items-center justify-center gap-2 p-8 text-center cursor-pointer transition-colors duration-150;
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius);
+    background-color: var(--bg2);
+  }
+  .dropzone:hover,
+  .dropzone-active {
+    border-color: var(--text);
+    background-color: var(--bg);
+  }
+
+  /* Round checkbox — accent when checked */
+  .check-round {
+    @apply appearance-none w-5 h-5 rounded-full border cursor-pointer relative shrink-0 transition-colors;
+    border-color: var(--border);
+    background: transparent;
+  }
+  .check-round:checked {
+    background-color: var(--accent);
+    border-color: var(--accent);
+  }
+  .check-round:checked::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 3px;
+    width: 5px;
+    height: 9px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
 }
 
-/* Reduced motion */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Custom scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+*:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--text2);
+}
+.scroll-panel {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.scroll-panel:hover {
+  scrollbar-color: var(--border) transparent;
+}
+.scroll-panel::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+.scroll-panel:hover::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

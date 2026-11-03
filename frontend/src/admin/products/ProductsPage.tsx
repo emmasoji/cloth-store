@@ -1,7 +1,27 @@
-import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, X, Check } from 'lucide-react'
+import { useEffect, useState, useRef } from 'react'
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Check,
+  Upload,
+  Image as ImageIcon,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 import { api } from '../../services/api'
 import { useToast } from '../../contexts/ToastContext'
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const IMAGE_SLOTS = 4
+
+interface ProductImage {
+  id?: string
+  url: string
+  is_primary?: boolean
+  localPreview?: boolean
+  file?: File
+}
 
 interface ProductRow {
   id: string
@@ -18,6 +38,7 @@ interface ProductRow {
   description?: string
   sku?: string
   categories?: { name: string }
+  product_images?: ProductImage[]
 }
 
 interface Category {
@@ -39,7 +60,16 @@ const emptyForm = {
   is_trending: false,
   is_active: true,
   category_id: '',
-  image_url: '',
+  sizes: [] as string[],
+}
+
+function titleCase(s: string) {
+  return s
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
 }
 
 function slugify(s: string) {
@@ -52,14 +82,19 @@ function slugify(s: string) {
 }
 
 export default function ProductsPage() {
+  const [view, setView] = useState<'list' | 'form'>('list')
   const [items, setItems] = useState<ProductRow[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<ProductRow | null>(null)
   const [form, setForm] = useState(emptyForm)
+  const [images, setImages] = useState<ProductImage[]>([])
+  const [carouselIndex, setCarouselIndex] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [catOpen, setCatOpen] = useState(false)
+  const slotInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const { toast } = useToast()
 
   const load = () => {
@@ -79,10 +114,23 @@ export default function ProductsPage() {
     api.get('/api/categories').then((d) => setCategories(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
+  useEffect(() => {
+    if (images.length <= 1) {
+      setCarouselIndex(0)
+      return
+    }
+    const t = setInterval(() => {
+      setCarouselIndex((i) => (i + 1) % images.length)
+    }, 4000)
+    return () => clearInterval(t)
+  }, [images.length])
+
   const openCreate = () => {
     setEditing(null)
     setForm(emptyForm)
-    setModalOpen(true)
+    setImages([])
+    setCarouselIndex(0)
+    setView('form')
   }
 
   const openEdit = (p: ProductRow) => {
@@ -100,19 +148,67 @@ export default function ProductsPage() {
       is_trending: !!p.is_trending,
       is_active: p.is_active !== false,
       category_id: p.category_id || '',
-      image_url: (p as any).product_images?.[0]?.url || '',
+      sizes: (p as any).sizes || [],
     })
-    setModalOpen(true)
+    setImages(p.product_images || [])
+    setCarouselIndex(0)
+    setView('form')
+  }
+
+  const goBack = () => {
+    setView('list')
+    setEditing(null)
+    setImages([])
+    setForm(emptyForm)
+  }
+
+  const addLocalFile = (file: File, slotIndex?: number) => {
+    if (!file.type.startsWith('image/')) {
+      toast('Only images allowed', 'error')
+      return
+    }
+    const url = URL.createObjectURL(file)
+    const entry: ProductImage = { url, file, localPreview: true, is_primary: images.length === 0 }
+    setImages((prev) => {
+      if (typeof slotIndex === 'number' && slotIndex < prev.length) {
+        const next = [...prev]
+        next[slotIndex] = entry
+        return next
+      }
+      return [...prev, entry]
+    })
+  }
+
+  const uploadFileToProduct = async (file: File, productId: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('bucket', 'products')
+    fd.append('product_id', productId)
+    const res = await fetch(`${API_BASE}/api/media/upload`, { method: 'POST', body: fd })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Upload failed')
+    }
+    const data = await res.json()
+    await api.post(`/api/admin/products/${productId}/images`, {
+      url: data.url,
+      is_primary: false,
+    })
+    return data.url as string
   }
 
   const save = async () => {
     if (!form.name.trim()) {
-      toast('Name is required', 'error')
+      toast('Product name is required', 'error')
+      return
+    }
+    if (images.length < 1) {
+      toast('Add at least one image', 'error')
       return
     }
     setSaving(true)
     const payload: Record<string, unknown> = {
-      name: form.name.trim(),
+      name: titleCase(form.name),
       slug: form.slug.trim() || slugify(form.name),
       sku: form.sku || null,
       description: form.description || null,
@@ -129,28 +225,32 @@ export default function ProductsPage() {
       let productId = editing?.id
       if (editing) {
         await api.patch(`/api/admin/products/${editing.id}`, payload)
-        toast('Product updated', 'success')
       } else {
         const created = await api.post('/api/admin/products', payload)
         productId = created?.id
-        toast('Product created', 'success')
+        setEditing(created)
       }
-      if (productId && form.image_url?.trim()) {
-        try {
-          await api.post(`/api/admin/products/${productId}/images`, {
-            url: form.image_url.trim(),
-            is_primary: true,
-          })
-        } catch {
-          /* image optional */
+
+      const pending = images.filter((img) => img.file)
+      if (productId && pending.length) {
+        setUploading(true)
+        const uploaded: ProductImage[] = images.filter((img) => !img.file)
+        for (let i = 0; i < pending.length; i++) {
+          const url = await uploadFileToProduct(pending[i].file!, productId)
+          uploaded.push({ url, is_primary: uploaded.length === 0 })
         }
+        setImages(uploaded)
+        setUploading(false)
       }
-      setModalOpen(false)
+
+      toast(editing ? 'Product updated' : 'Product created', 'success')
       load()
+      setView('list')
     } catch (e: any) {
       toast(e?.message || 'Save failed', 'error')
     } finally {
       setSaving(false)
+      setUploading(false)
     }
   }
 
@@ -176,244 +276,368 @@ export default function ProductsPage() {
     }
   }
 
-  return (
-    <div>
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="font-display text-2xl">Products</h1>
-          <p className="text-sm opacity-50 mt-1">{total} products</p>
-        </div>
-        <button onClick={openCreate} className="btn-primary text-xs inline-flex items-center gap-2">
-          <Plus size={14} /> Add Product
-        </button>
-      </div>
+  const removeImageAt = (index: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== index))
+    setCarouselIndex((i) => Math.max(0, Math.min(i, images.length - 2)))
+  }
 
-      {loading ? (
-        <div className="space-y-2">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-14 animate-pulse" style={{ backgroundColor: 'var(--bg2)' }} />
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <div className="border p-12 text-center" style={{ borderColor: 'var(--border)' }}>
-          <p className="text-sm opacity-60 mb-4">No products yet</p>
-          <button onClick={openCreate} className="btn-primary text-xs">
-            Create first product
+  if (view === 'list') {
+    return (
+      <div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div>
+            <h1 className="font-display text-2xl">Products</h1>
+            <p className="text-sm opacity-50 mt-1">{total} products</p>
+          </div>
+          <button onClick={openCreate} className="btn-primary text-xs inline-flex items-center gap-2">
+            <Plus size={14} /> Add Product
           </button>
         </div>
-      ) : (
-        <div className="border overflow-x-auto" style={{ borderColor: 'var(--border)' }}>
-          <table className="w-full text-sm text-left">
-            <thead>
-              <tr className="border-b text-xs tracking-widest uppercase opacity-50" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg2)' }}>
-                <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium hidden md:table-cell">SKU</th>
-                <th className="px-4 py-3 font-medium">Price</th>
-                <th className="px-4 py-3 font-medium hidden sm:table-cell">Stock</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((p) => (
-                <tr key={p.id} className="border-b" style={{ borderColor: 'var(--border)' }}>
-                  <td className="px-4 py-3">
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-xs opacity-50">{p.categories?.name || '—'}</div>
-                  </td>
-                  <td className="px-4 py-3 hidden md:table-cell opacity-60">{p.sku || '—'}</td>
-                  <td className="px-4 py-3">₦{Number(p.price).toLocaleString()}</td>
-                  <td className="px-4 py-3 hidden sm:table-cell">{p.stock_quantity ?? 0}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => toggleStatus(p)}
-                      className="text-xs tracking-wide uppercase px-2 py-1 border"
-                      style={{ borderColor: 'var(--border)' }}
-                    >
-                      {p.status}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => openEdit(p)} className="p-1.5 opacity-60 hover:opacity-100" aria-label="Edit">
-                        <Pencil size={14} />
-                      </button>
-                      <button onClick={() => remove(p.id)} className="p-1.5 opacity-60 hover:opacity-100" aria-label="Delete">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
+
+        {loading ? (
+          <div className="space-y-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-14 animate-pulse rounded-xl" style={{ backgroundColor: 'var(--bg2)' }} />
+            ))}
+          </div>
+        ) : items.length === 0 ? (
+          <div className="surface p-12 text-center">
+            <p className="text-sm opacity-60 mb-4">No products yet</p>
+            <button onClick={openCreate} className="btn-primary text-xs">
+              Create first product
+            </button>
+          </div>
+        ) : (
+          <div className="surface overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="border-b text-xs tracking-widest uppercase opacity-50" style={{ borderColor: 'var(--border)' }}>
+                  <th className="px-4 py-3 font-medium">Name</th>
+                  <th className="px-4 py-3 font-medium hidden md:table-cell">SKU</th>
+                  <th className="px-4 py-3 font-medium">Price</th>
+                  <th className="px-4 py-3 font-medium hidden sm:table-cell">Stock</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium text-right">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {items.map((p) => (
+                  <tr key={p.id} className="border-b last:border-0" style={{ borderColor: 'var(--border)' }}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-10 h-12 rounded-lg overflow-hidden shrink-0 flex items-center justify-center opacity-40"
+                          style={{ backgroundColor: 'var(--bg)' }}
+                        >
+                          {p.product_images?.[0]?.url ? (
+                            <img src={p.product_images[0].url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <ImageIcon size={14} />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-medium capitalize">{p.name}</div>
+                          <div className="text-xs opacity-50">{p.categories?.name || '—'}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell opacity-60">{p.sku || '—'}</td>
+                    <td className="px-4 py-3">₦{Number(p.price).toLocaleString()}</td>
+                    <td className="px-4 py-3 hidden sm:table-cell">{p.stock_quantity ?? 0}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => toggleStatus(p)}
+                        className="text-xs tracking-wide uppercase px-2.5 py-1 border rounded-lg"
+                        style={{ borderColor: 'var(--border)' }}
+                      >
+                        {p.status}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg opacity-60 hover:opacity-100">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => remove(p.id)} className="p-1.5 rounded-lg opacity-60 hover:opacity-100">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const slotCount = Math.max(IMAGE_SLOTS, images.length + 1)
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-8">
+        <button
+          type="button"
+          onClick={goBack}
+          className="p-2 rounded-lg opacity-70 hover:opacity-100 transition-opacity"
+          aria-label="Back to products"
+        >
+          <ChevronLeft size={22} />
+        </button>
+        <div>
+          <h1 className="font-display text-2xl">{editing ? 'Edit Product' : 'Create Product'}</h1>
         </div>
-      )}
+      </div>
 
-      {/* Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setModalOpen(false)} />
-          <div
-            className="relative w-full sm:max-w-lg max-h-[90vh] overflow-y-auto border p-6"
-            style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)' }}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="font-display text-xl">{editing ? 'Edit Product' : 'New Product'}</h2>
-              <button onClick={() => setModalOpen(false)}>
-                <X size={18} />
-              </button>
+      <section className="mb-8">
+        <p className="text-xs tracking-widest uppercase opacity-50 mb-3">Images</p>
+
+        {images.length > 1 && (
+          <div className="relative mb-4 rounded-2xl overflow-hidden border" style={{ borderColor: 'var(--border)' }}>
+            <div className="aspect-[16/9] sm:aspect-[21/9]" style={{ backgroundColor: 'var(--bg2)' }}>
+              <img src={images[carouselIndex]?.url} alt="" className="w-full h-full object-contain" />
             </div>
-
-            <div className="space-y-4">
-              <Field label="Name *">
-                <input
-                  value={form.name}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      name: e.target.value,
-                      slug: editing ? f.slug : slugify(e.target.value),
-                    }))
-                  }
-                  className="input"
+            <button
+              type="button"
+              className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full border"
+              style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)' }}
+              onClick={() => setCarouselIndex((i) => (i - 1 + images.length) % images.length)}
+              aria-label="Previous image"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              type="button"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full border"
+              style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)' }}
+              onClick={() => setCarouselIndex((i) => (i + 1) % images.length)}
+              aria-label="Next image"
+            >
+              <ChevronRight size={18} />
+            </button>
+            <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+              {images.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setCarouselIndex(i)}
+                  className="w-2 h-2 rounded-full transition-opacity"
+                  style={{
+                    backgroundColor: 'var(--text)',
+                    opacity: i === carouselIndex ? 1 : 0.3,
+                  }}
+                  aria-label={`Image ${i + 1}`}
                 />
-              </Field>
-              <Field label="Slug">
-                <input value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))} className="input" />
-              </Field>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Price (NGN) *">
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.price}
-                    onChange={(e) => setForm((f) => ({ ...f, price: Number(e.target.value) }))}
-                    className="input"
-                  />
-                </Field>
-                <Field label="Original price">
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.original_price || ''}
-                    onChange={(e) => setForm((f) => ({ ...f, original_price: Number(e.target.value) }))}
-                    className="input"
-                  />
-                </Field>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Stock">
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.stock_quantity}
-                    onChange={(e) => setForm((f) => ({ ...f, stock_quantity: Number(e.target.value) }))}
-                    className="input"
-                  />
-                </Field>
-                <Field label="SKU">
-                  <input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} className="input" />
-                </Field>
-              </div>
-              <Field label="Category">
-                <select
-                  value={form.category_id}
-                  onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))}
-                  className="input"
-                >
-                  <option value="">None</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Status">
-                <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} className="input">
-                  <option value="draft">Draft</option>
-                  <option value="published">Published</option>
-                  <option value="archived">Archived</option>
-                </select>
-              </Field>
-              <Field label="Image URL">
-                <input
-                  value={form.image_url}
-                  onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
-                  className="input"
-                  placeholder="https://... or Supabase storage URL"
-                />
-              </Field>
-              <Field label="Description">
-                <textarea
-                  rows={3}
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  className="input resize-none"
-                />
-              </Field>
-              <div className="flex flex-wrap gap-4 text-sm">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.is_featured}
-                    onChange={(e) => setForm((f) => ({ ...f, is_featured: e.target.checked }))}
-                  />
-                  Featured
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.is_trending}
-                    onChange={(e) => setForm((f) => ({ ...f, is_trending: e.target.checked }))}
-                  />
-                  Trending
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.is_active}
-                    onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
-                  />
-                  Active
-                </label>
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-8">
-              <button onClick={save} disabled={saving} className="btn-primary flex-1 text-xs inline-flex items-center justify-center gap-2">
-                <Check size={14} /> {saving ? 'Saving...' : 'Save'}
-              </button>
-              <button onClick={() => setModalOpen(false)} className="btn-outline text-xs">
-                Cancel
-              </button>
+              ))}
             </div>
           </div>
+        )}
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {Array.from({ length: slotCount }).map((_, index) => {
+            const img = images[index]
+            return (
+              <div key={index} className="relative aspect-square">
+                <button
+                  type="button"
+                  onClick={() => slotInputRefs.current[index]?.click()}
+                  className="w-full h-full rounded-xl border flex flex-col items-center justify-center gap-2 transition-colors overflow-hidden"
+                  style={{
+                    borderColor: 'var(--border)',
+                    backgroundColor: 'var(--bg2)',
+                    borderStyle: img ? 'solid' : 'dashed',
+                  }}
+                >
+                  {img ? (
+                    <img src={img.url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <>
+                      <Plus size={22} className="opacity-40" />
+                      <span className="text-[10px] tracking-widest uppercase opacity-40">Add</span>
+                    </>
+                  )}
+                </button>
+                {img && (
+                  <button
+                    type="button"
+                    onClick={() => removeImageAt(index)}
+                    className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full text-xs flex items-center justify-center"
+                    style={{ backgroundColor: 'var(--btn)', color: 'var(--btn-text)' }}
+                    aria-label="Remove image"
+                  >
+                    ×
+                  </button>
+                )}
+                <input
+                  ref={(el) => {
+                    slotInputRefs.current[index] = el
+                  }}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) addLocalFile(file, img ? index : undefined)
+                    e.target.value = ''
+                  }}
+                />
+              </div>
+            )
+          })}
         </div>
-      )}
+      </section>
 
-      <style>{`
-        .input {
-          width: 100%;
-          padding: 0.5rem 0.75rem;
-          font-size: 0.875rem;
-          background: transparent;
-          border: 1px solid var(--border);
-          color: var(--text);
-          outline: none;
-        }
-        .input:focus { border-color: var(--text); }
-      `}</style>
+      <div className="space-y-4 max-w-xl">
+        <label className="block">
+          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Product Name *</span>
+          <input
+            value={form.name}
+            onChange={(e) =>
+              setForm((f) => ({
+                ...f,
+                name: e.target.value,
+                slug: editing ? f.slug : slugify(e.target.value),
+              }))
+            }
+            className="field"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Price (NGN) *</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={form.price || ''}
+            onChange={(e) => {
+              const v = e.target.value.replace(/[^0-9.]/g, '')
+              setForm((f) => ({ ...f, price: v === '' ? 0 : Number(v) }))
+            }}
+            className="field"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-4">
+          <label className="block">
+            <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Amount available</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={form.stock_quantity || ''}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9]/g, '')
+                setForm((f) => ({ ...f, stock_quantity: v === '' ? 0 : Number(v) }))
+              }}
+              className="field"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">SKU</span>
+            <input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} className="field" />
+          </label>
+        </div>
+        <div className="block relative">
+          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Category</span>
+          <button
+            type="button"
+            onClick={() => setCatOpen((o) => !o)}
+            className="field w-full text-left flex items-center justify-between"
+          >
+            <span className={form.category_id ? '' : 'opacity-50'}>
+              {categories.find((c) => c.id === form.category_id)?.name || 'Select category'}
+            </span>
+            <span className="opacity-40 text-xs">▼</span>
+          </button>
+          {catOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setCatOpen(false)} />
+              <div
+                className="absolute z-20 left-0 right-0 mt-1 border py-1 max-h-48 overflow-y-auto"
+                style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)', borderRadius: 'var(--radius-sm)' }}
+              >
+                <button
+                  type="button"
+                  className="block w-full text-left px-3.5 py-2.5 text-sm opacity-60 hover:opacity-100"
+                  style={{ backgroundColor: !form.category_id ? 'var(--bg2)' : 'transparent' }}
+                  onClick={() => { setForm((f) => ({ ...f, category_id: '' })); setCatOpen(false) }}
+                >
+                  None
+                </button>
+                {categories.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className="block w-full text-left px-3.5 py-2.5 text-sm hover:opacity-100"
+                    style={{ backgroundColor: form.category_id === c.id ? 'var(--bg2)' : 'transparent', opacity: form.category_id === c.id ? 1 : 0.7 }}
+                    onClick={() => { setForm((f) => ({ ...f, category_id: c.id })); setCatOpen(false) }}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div>
+          <span className="text-xs tracking-widest uppercase opacity-50 mb-3 block">Sizes</span>
+          <div className="flex flex-wrap gap-4">
+            {['XS', 'S', 'M', 'L', 'XL', 'XXL'].map((s) => {
+              const checked = (form.sizes || []).includes(s)
+              return (
+                <label key={s} className="flex items-center gap-2 cursor-pointer text-sm">
+                  <input
+                    type="checkbox"
+                    className="check-round"
+                    checked={checked}
+                    onChange={() => {
+                      setForm((f) => {
+                        const cur = f.sizes || []
+                        const next = checked ? cur.filter((x) => x !== s) : [...cur, s]
+                        return { ...f, sizes: next }
+                      })
+                    }}
+                  />
+                  {s}
+                </label>
+              )
+            })}
+          </div>
+        </div>
+
+        <label className="block">
+          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Description</span>
+          <textarea
+            rows={4}
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            className="field resize-none"
+          />
+        </label>
+        <div className="flex flex-wrap gap-4 text-sm">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.is_featured} onChange={(e) => setForm((f) => ({ ...f, is_featured: e.target.checked }))} />
+            Featured
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.is_trending} onChange={(e) => setForm((f) => ({ ...f, is_trending: e.target.checked }))} />
+            Trending
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} />
+            Active
+          </label>
+        </div>
+
+        <div className="flex gap-3 pt-4">
+          <button onClick={save} disabled={saving || uploading || images.length < 1} className="btn-primary text-xs inline-flex items-center gap-2">
+            <Check size={14} /> {saving || uploading ? 'Saving…' : 'Save product'}
+          </button>
+          <button type="button" onClick={goBack} className="btn-outline text-xs">
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">{label}</span>
-      {children}
-    </label>
   )
 }

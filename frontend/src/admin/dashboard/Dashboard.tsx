@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../../services/api'
 
 interface Overview {
@@ -10,7 +11,6 @@ interface Overview {
   completed_orders: number
   average_order_value: number
   total_customers: number
-  message?: string
 }
 
 export default function AdminDashboard() {
@@ -31,7 +31,6 @@ export default function AdminDashboard() {
           completed_orders: 0,
           average_order_value: 0,
           total_customers: 0,
-          message: 'Connect Supabase for live analytics',
         })
       )
       .finally(() => setLoading(false))
@@ -51,13 +50,10 @@ export default function AdminDashboard() {
   return (
     <div>
       <h1 className="font-display text-2xl mb-6">Overview</h1>
-      {data?.message && (
-        <p className="text-sm opacity-50 mb-4">{data.message}</p>
-      )}
       {loading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-            <div key={i} className="h-24 animate-pulse" style={{ backgroundColor: 'var(--bg2)' }} />
+            <div key={i} className="h-24 animate-pulse rounded-xl" style={{ backgroundColor: 'var(--bg2)' }} />
           ))}
         </div>
       ) : (
@@ -65,7 +61,7 @@ export default function AdminDashboard() {
           {cards.map((c) => (
             <div
               key={c.label}
-              className="p-4 border"
+              className="p-4 border rounded-xl"
               style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg2)' }}
             >
               <p className="text-xs tracking-widest uppercase opacity-50 mb-2">{c.label}</p>
@@ -74,15 +70,17 @@ export default function AdminDashboard() {
           ))}
         </div>
       )}
-      <div className="mt-10 border p-6" style={{ borderColor: 'var(--border)' }}>
-        <h2 className="text-sm tracking-widest uppercase opacity-50 mb-4">Quick Start</h2>
-        <ol className="text-sm space-y-2 opacity-80 list-decimal list-inside">
-          <li>Run Supabase SQL setup from <code className="text-xs">supabase/setup.sql</code></li>
-          <li>Create Storage buckets (products, categories, homepage, etc.)</li>
-          <li>Set environment variables in backend and frontend</li>
-          <li>Create an admin user and set role = admin in profiles</li>
-          <li>Add products via API or extend this dashboard</li>
-        </ol>
+      <div className="mt-10 grid sm:grid-cols-2 gap-4">
+        <Link to="/admin/products" className="border p-5 block rounded-xl hover:opacity-80 transition-opacity" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-xs tracking-widest uppercase opacity-50 mb-1">Manage</p>
+          <p className="font-medium text-base">Products</p>
+          <p className="text-sm opacity-60 mt-1">Create, edit, publish items</p>
+        </Link>
+        <Link to="/admin/orders" className="border p-5 block rounded-xl hover:opacity-80 transition-opacity" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-xs tracking-widest uppercase opacity-50 mb-1">Manage</p>
+          <p className="font-medium text-base">Orders</p>
+          <p className="text-sm opacity-60 mt-1">Status, tracking, details</p>
+        </Link>
       </div>
     </div>
   )
