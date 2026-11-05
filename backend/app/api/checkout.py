@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Optional, Any
 from app.services.supabase_client import get_supabase_admin
 from app.services.paystack_service import initialize_transaction
 import uuid
@@ -33,22 +33,67 @@ class CheckoutRequest(BaseModel):
     shipping_method_id: Optional[str] = None
 
 
+def _data(res: Any):
+    if res is None:
+        return None
+    return getattr(res, "data", None)
+
+
 @router.post("/init")
 async def init_checkout(body: CheckoutRequest):
-    """Create pending order and return Paystack payment params."""
+    """Create pending order from cart, snapshot variant details, return Paystack params."""
     sb = get_supabase_admin()
     if not sb:
         raise HTTPException(503, "Database not configured")
 
-    # Load cart items (simplified: expect frontend to also send items for validation)
-    # In production always recalculate from server-side cart + product prices.
-    order_number = f"NEON-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
+    if not body.cart_session_id:
+        raise HTTPException(400, "cart_session_id required")
 
-    # Placeholder totals — real implementation must sum cart_items * product.price
-    subtotal = 0
+    cart_res = (
+        sb.table("carts")
+        .select("id, session_id, cart_items(*, products(*, product_images(*)), product_variants(*))")
+        .eq("session_id", body.cart_session_id)
+        .limit(1)
+        .execute()
+    )
+    carts = _data(cart_res) or []
+    if not carts:
+        raise HTTPException(400, "Cart is empty")
+    cart = carts[0] if isinstance(carts, list) else carts
+    cart_items = cart.get("cart_items") or []
+    if not cart_items:
+        raise HTTPException(400, "Cart is empty")
+
+    line_rows = []
+    subtotal = 0.0
+    for ci in cart_items:
+        product = ci.get("products") or {}
+        variant = ci.get("product_variants") or {}
+        qty = int(ci.get("quantity") or 1)
+        unit = float(ci.get("unit_price") or product.get("price") or 0)
+        line_total = unit * qty
+        subtotal += line_total
+        imgs = product.get("product_images") or []
+        primary = next((i for i in imgs if i.get("is_primary")), imgs[0] if imgs else None)
+        size = (variant.get("size") if isinstance(variant, dict) else None) or None
+        colour = (variant.get("colour") if isinstance(variant, dict) else None) or None
+        line_rows.append({
+            "product_id": ci.get("product_id"),
+            "variant_id": ci.get("variant_id"),
+            "product_name": product.get("name") or "Product",
+            "product_sku": product.get("sku") or (variant.get("sku") if isinstance(variant, dict) else None),
+            "size": size,
+            "colour": colour,
+            "quantity": qty,
+            "unit_price": unit,
+            "total_price": line_total,
+            "image_url": (primary or {}).get("url") if primary else None,
+        })
+
     shipping = 2500
     discount = 0
     total = subtotal + shipping - discount
+    order_number = f"NEON-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
 
     order_data = {
         "order_number": order_number,
@@ -68,11 +113,15 @@ async def init_checkout(body: CheckoutRequest):
     }
 
     order_res = sb.table("orders").insert(order_data).execute()
-    if not order_res.data:
+    order_rows = _data(order_res) or []
+    if not order_rows:
         raise HTTPException(500, "Failed to create order")
-    order = order_res.data[0]
+    order = order_rows[0] if isinstance(order_rows, list) else order_rows
 
-    # Create payment record
+    for row in line_rows:
+        row["order_id"] = order["id"]
+    sb.table("order_items").insert(line_rows).execute()
+
     reference = f"txn_{uuid.uuid4().hex}"
     payment_data = {
         "order_id": order["id"],
@@ -83,12 +132,11 @@ async def init_checkout(body: CheckoutRequest):
     }
     sb.table("payments").insert(payment_data).execute()
 
-    # Initialize Paystack
     paystack_result = await initialize_transaction(
         email=body.customer.email,
-        amount=int(total * 100),  # kobo
+        amount=int(total * 100),
         reference=reference,
-        currency=body.currency if body.currency == "NGN" else "NGN",  # Paystack primarily NGN
+        currency=body.currency if body.currency == "NGN" else "NGN",
         metadata={"order_id": order["id"], "order_number": order_number},
     )
 
@@ -98,6 +146,7 @@ async def init_checkout(body: CheckoutRequest):
         "reference": reference,
         "amount": total,
         "currency": body.currency,
+        "items": line_rows,
         "paystack": paystack_result,
-        "public_key": None,  # frontend uses VITE_PAYSTACK_PUBLIC_KEY
+        "public_key": None,
     }

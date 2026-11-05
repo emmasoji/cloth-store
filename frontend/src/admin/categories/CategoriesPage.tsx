@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Plus, Pencil, Trash2, X, Check } from 'lucide-react'
 import { api } from '../../services/api'
 import { useToast } from '../../contexts/ToastContext'
+import ConfirmDialog from '../components/ConfirmDialog'
 
 interface Category {
   id: string
@@ -24,6 +25,7 @@ export default function CategoriesPage() {
   const [editing, setEditing] = useState<Category | null>(null)
   const [form, setForm] = useState({ name: '', slug: '', description: '', image_url: '', is_active: true, sort_order: 0 })
   const [saving, setSaving] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const { toast } = useToast()
 
   const load = () => {
@@ -90,10 +92,10 @@ export default function CategoriesPage() {
   }
 
   const remove = async (id: string) => {
-    if (!confirm('Delete this category?')) return
     try {
       await api.delete(`/api/admin/categories/${id}`)
       toast('Deleted', 'success')
+      setConfirmDeleteId(null)
       load()
     } catch (e: any) {
       toast(e?.message || 'Delete failed', 'error')
@@ -133,7 +135,7 @@ export default function CategoriesPage() {
                       <button onClick={() => openEdit(c)} className="p-1.5 opacity-60 hover:opacity-100">
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => remove(c.id)} className="p-1.5 opacity-60 hover:opacity-100">
+                      <button onClick={() => setConfirmDeleteId(c.id)} className="p-1.5 opacity-60 hover:opacity-100">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -194,6 +196,14 @@ export default function CategoriesPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        title="Delete category"
+        message="This category will be removed. Products in it are not deleted."
+        confirmLabel="Delete"
+        onCancel={() => setConfirmDeleteId(null)}
+        onConfirm={() => confirmDeleteId && remove(confirmDeleteId)}
+      />
     </div>
   )
 }

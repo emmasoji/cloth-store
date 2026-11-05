@@ -11,9 +11,18 @@ import {
 } from 'lucide-react'
 import { api } from '../../services/api'
 import { useToast } from '../../contexts/ToastContext'
+import ConfirmDialog from '../components/ConfirmDialog'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const IMAGE_SLOTS = 4
+
+interface ProductOption {
+  id?: string
+  colour: string
+  size: string
+  weight: string
+  stock_quantity: string
+}
 
 interface ProductImage {
   id?: string
@@ -60,7 +69,6 @@ const emptyForm = {
   is_trending: false,
   is_active: true,
   category_id: '',
-  sizes: [] as string[],
 }
 
 function titleCase(s: string) {
@@ -90,9 +98,13 @@ export default function ProductsPage() {
   const [editing, setEditing] = useState<ProductRow | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [images, setImages] = useState<ProductImage[]>([])
+  const [options, setOptions] = useState<ProductOption[]>([
+    { colour: '', size: '', weight: '', stock_quantity: '' },
+  ])
   const [carouselIndex, setCarouselIndex] = useState(0)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [catOpen, setCatOpen] = useState(false)
   const slotInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const { toast } = useToast()
@@ -129,11 +141,12 @@ export default function ProductsPage() {
     setEditing(null)
     setForm(emptyForm)
     setImages([])
+    setOptions([{ colour: '', size: '', weight: '', stock_quantity: '' }])
     setCarouselIndex(0)
     setView('form')
   }
 
-  const openEdit = (p: ProductRow) => {
+  const openEdit = async (p: ProductRow) => {
     setEditing(p)
     setForm({
       name: p.name || '',
@@ -148,17 +161,65 @@ export default function ProductsPage() {
       is_trending: !!p.is_trending,
       is_active: p.is_active !== false,
       category_id: p.category_id || '',
-      sizes: (p as any).sizes || [],
     })
     setImages(p.product_images || [])
+    setOptions([{ colour: '', size: '', weight: '', stock_quantity: '' }])
     setCarouselIndex(0)
     setView('form')
+
+    // Always reload full product so variants/images are present
+    try {
+      const full = await api.get(`/api/admin/products/${p.id}`)
+      if (!full) return
+      setEditing(full)
+      setForm({
+        name: full.name || '',
+        slug: full.slug || '',
+        sku: full.sku || '',
+        description: full.description || '',
+        price: Number(full.price) || 0,
+        original_price: Number(full.original_price) || 0,
+        stock_quantity: Number(full.stock_quantity) || 0,
+        status: full.status || 'published',
+        is_featured: !!full.is_featured,
+        is_trending: !!full.is_trending,
+        is_active: full.is_active !== false,
+        category_id: full.category_id || '',
+      })
+      setImages(full.product_images || [])
+      const vars = full.product_variants || []
+      if (vars.length) {
+        setOptions(
+          vars.map((v: any) => ({
+            id: v.id,
+            colour: v.colour || '',
+            size: v.size || '',
+            weight: v.weight != null ? String(v.weight) : '',
+            stock_quantity: v.stock_quantity != null ? String(v.stock_quantity) : '',
+          }))
+        )
+      } else {
+        // fallback: show total stock as one blank option stock if product has stock only
+        const ts = Number(full.stock_quantity) || 0
+        setOptions([
+          {
+            colour: '',
+            size: '',
+            weight: '',
+            stock_quantity: ts ? String(ts) : '',
+          },
+        ])
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Could not load product options', 'error')
+    }
   }
 
   const goBack = () => {
     setView('list')
     setEditing(null)
     setImages([])
+    setOptions([{ colour: '', size: '', weight: '', stock_quantity: '' }])
     setForm(emptyForm)
   }
 
@@ -187,14 +248,14 @@ export default function ProductsPage() {
     const res = await fetch(`${API_BASE}/api/media/upload`, { method: 'POST', body: fd })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || 'Upload failed')
+      throw new Error(typeof err.detail === 'string' ? err.detail : 'Upload failed')
     }
     const data = await res.json()
-    await api.post(`/api/admin/products/${productId}/images`, {
+    const row = await api.post(`/api/admin/products/${productId}/images`, {
       url: data.url,
       is_primary: false,
     })
-    return data.url as string
+    return { url: data.url as string, id: row?.id as string | undefined }
   }
 
   const save = async () => {
@@ -214,7 +275,7 @@ export default function ProductsPage() {
       description: form.description || null,
       price: Number(form.price),
       original_price: form.original_price ? Number(form.original_price) : null,
-      stock_quantity: Number(form.stock_quantity),
+      stock_quantity: options.reduce((sum, o) => sum + (Number(o.stock_quantity) || 0), 0),
       status: form.status,
       is_featured: form.is_featured,
       is_trending: form.is_trending,
@@ -236,11 +297,28 @@ export default function ProductsPage() {
         setUploading(true)
         const uploaded: ProductImage[] = images.filter((img) => !img.file)
         for (let i = 0; i < pending.length; i++) {
-          const url = await uploadFileToProduct(pending[i].file!, productId)
-          uploaded.push({ url, is_primary: uploaded.length === 0 })
+          const up = await uploadFileToProduct(pending[i].file!, productId)
+          uploaded.push({ url: up.url, id: up.id, is_primary: uploaded.length === 0 })
         }
         setImages(uploaded)
         setUploading(false)
+      }
+
+      // Sync product options (colour / size / weight rows)
+      if (productId) {
+        const items = options
+          .filter((o) => o.colour.trim() || o.size.trim() || o.weight.trim())
+          .map((o) => ({
+            colour: o.colour.trim() || null,
+            size: o.size.trim() || null,
+            weight: o.weight.trim() || null,
+            stock_quantity: o.stock_quantity.trim() ? Number(o.stock_quantity) : 0,
+          }))
+        try {
+          await api.put(`/api/admin/products/${productId}/variants`, { items })
+        } catch (ve: any) {
+          toast(ve?.message || 'Product saved, but options failed to save', 'error')
+        }
       }
 
       toast(editing ? 'Product updated' : 'Product created', 'success')
@@ -255,10 +333,10 @@ export default function ProductsPage() {
   }
 
   const remove = async (id: string) => {
-    if (!confirm('Delete this product?')) return
     try {
       await api.delete(`/api/admin/products/${id}`)
       toast('Product deleted', 'success')
+      setConfirmDeleteId(null)
       load()
     } catch (e: any) {
       toast(e?.message || 'Delete failed', 'error')
@@ -276,7 +354,19 @@ export default function ProductsPage() {
     }
   }
 
-  const removeImageAt = (index: number) => {
+  const removeImageAt = async (index: number) => {
+    const img = images[index]
+    if (!img) return
+    // Persist delete when image already exists in DB
+    if (img.id) {
+      try {
+        await api.delete(`/api/admin/product-images/${img.id}`)
+        toast('Image removed', 'success')
+      } catch (e: any) {
+        toast(e?.message || 'Could not delete image', 'error')
+        return
+      }
+    }
     setImages((prev) => prev.filter((_, i) => i !== index))
     setCarouselIndex((i) => Math.max(0, Math.min(i, images.length - 2)))
   }
@@ -358,7 +448,7 @@ export default function ProductsPage() {
                         <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg opacity-60 hover:opacity-100">
                           <Pencil size={14} />
                         </button>
-                        <button onClick={() => remove(p.id)} className="p-1.5 rounded-lg opacity-60 hover:opacity-100">
+                        <button onClick={() => setConfirmDeleteId(p.id)} className="p-1.5 rounded-lg opacity-60 hover:opacity-100">
                           <Trash2 size={14} />
                         </button>
                       </div>
@@ -369,6 +459,15 @@ export default function ProductsPage() {
             </table>
           </div>
         )}
+
+        <ConfirmDialog
+          open={!!confirmDeleteId}
+          title="Delete product"
+          message="This product and its images will be removed. This cannot be undone."
+          confirmLabel="Delete"
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={() => confirmDeleteId && remove(confirmDeleteId)}
+        />
       </div>
     )
   }
@@ -475,7 +574,7 @@ export default function ProductsPage() {
                     slotInputRefs.current[index] = el
                   }}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,.avif,.heic,.heif,image/avif"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0]
@@ -519,16 +618,13 @@ export default function ProductsPage() {
         </label>
         <div className="grid grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Amount available</span>
+            <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Total stock</span>
             <input
               type="text"
-              inputMode="numeric"
-              value={form.stock_quantity || ''}
-              onChange={(e) => {
-                const v = e.target.value.replace(/[^0-9]/g, '')
-                setForm((f) => ({ ...f, stock_quantity: v === '' ? 0 : Number(v) }))
-              }}
-              className="field"
+              readOnly
+              disabled
+              value={options.reduce((sum, o) => sum + (Number(o.stock_quantity) || 0), 0)}
+              className="field opacity-70 cursor-not-allowed"
             />
           </label>
           <label className="block">
@@ -579,29 +675,95 @@ export default function ProductsPage() {
           )}
         </div>
 
+
         <div>
-          <span className="text-xs tracking-widest uppercase opacity-50 mb-3 block">Sizes</span>
-          <div className="flex flex-wrap gap-4">
-            {['XS', 'S', 'M', 'L', 'XL', 'XXL'].map((s) => {
-              const checked = (form.sizes || []).includes(s)
-              return (
-                <label key={s} className="flex items-center gap-2 cursor-pointer text-sm">
-                  <input
-                    type="checkbox"
-                    className="check-round"
-                    checked={checked}
-                    onChange={() => {
-                      setForm((f) => {
-                        const cur = f.sizes || []
-                        const next = checked ? cur.filter((x) => x !== s) : [...cur, s]
-                        return { ...f, sizes: next }
-                      })
-                    }}
-                  />
-                  {s}
-                </label>
-              )
-            })}
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs tracking-widest uppercase opacity-50">Product options</span>
+            <button
+              type="button"
+              onClick={() =>
+                setOptions((prev) => [...prev, { colour: '', size: '', weight: '', stock_quantity: '' }])
+              }
+              className="text-[11px] tracking-widest uppercase opacity-60 hover:opacity-100 inline-flex items-center gap-1"
+            >
+              <Plus size={12} /> Add row
+            </button>
+          </div>
+          <div className="border rounded-xl overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+            <div
+              className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 px-3 py-2 text-[10px] tracking-widest uppercase opacity-50 border-b"
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg2)' }}
+            >
+              <span>Colour</span>
+              <span>Size</span>
+              <span>Weight</span>
+              <span>Stock</span>
+              <span />
+            </div>
+            {options.map((row, idx) => (
+              <div
+                key={idx}
+                className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 px-3 py-2 items-center border-b last:border-0"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <input
+                  className="field py-1.5 text-sm"
+                  placeholder="e.g. Black"
+                  value={row.colour}
+                  onChange={(e) =>
+                    setOptions((prev) => prev.map((r, i) => (i === idx ? { ...r, colour: e.target.value } : r)))
+                  }
+                />
+                <input
+                  className="field py-1.5 text-sm"
+                  placeholder="e.g. M"
+                  value={row.size}
+                  onChange={(e) =>
+                    setOptions((prev) => prev.map((r, i) => (i === idx ? { ...r, size: e.target.value } : r)))
+                  }
+                />
+                <input
+                  className="field py-1.5 text-sm"
+                  placeholder="kg"
+                  inputMode="decimal"
+                  value={row.weight}
+                  onChange={(e) =>
+                    setOptions((prev) =>
+                      prev.map((r, i) =>
+                        i === idx ? { ...r, weight: e.target.value.replace(/[^0-9.]/g, '') } : r
+                      )
+                    )
+                  }
+                />
+                <input
+                  className="field py-1.5 text-sm"
+                  placeholder="0"
+                  inputMode="numeric"
+                  value={row.stock_quantity}
+                  onChange={(e) =>
+                    setOptions((prev) =>
+                      prev.map((r, i) =>
+                        i === idx ? { ...r, stock_quantity: e.target.value.replace(/[^0-9]/g, '') } : r
+                      )
+                    )
+                  }
+                />
+                <button
+                  type="button"
+                  className="p-1.5 opacity-50 hover:opacity-100"
+                  aria-label="Remove row"
+                  onClick={() =>
+                    setOptions((prev) =>
+                      prev.length <= 1
+                        ? [{ colour: '', size: '', weight: '', stock_quantity: '' }]
+                        : prev.filter((_, i) => i !== idx)
+                    )
+                  }
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
 

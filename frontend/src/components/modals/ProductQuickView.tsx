@@ -18,6 +18,7 @@ export default function ProductQuickView({ product: initial, onClose }: Props) {
   const [size, setSize] = useState<string | null>(null)
   const [colour, setColour] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [galleryPaused, setGalleryPaused] = useState(false)
   const { format } = useCurrency()
   const { addItem } = useCart()
 
@@ -46,14 +47,16 @@ export default function ProductQuickView({ product: initial, onClose }: Props) {
     p?.product_images && p.product_images.length > 0
       ? p.product_images
       : [{ url: '', id: 'placeholder' }]
+  const imageCount = images.length
 
+  // Auto-advance main gallery when 2+ images (pause while hovering gallery)
   useEffect(() => {
-    if (!initial || images.length <= 1) return
-    const t = setInterval(() => {
-      setImgIndex((i) => (i + 1) % images.length)
-    }, 3500)
-    return () => clearInterval(t)
-  }, [initial, images.length])
+    if (!initial || imageCount <= 1 || galleryPaused) return
+    const id = window.setInterval(() => {
+      setImgIndex((i) => (i + 1) % imageCount)
+    }, 3000)
+    return () => window.clearInterval(id)
+  }, [initial, imageCount, galleryPaused, product?.id])
 
   useEffect(() => {
     if (!initial) return
@@ -107,7 +110,7 @@ export default function ProductQuickView({ product: initial, onClose }: Props) {
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 24, opacity: 0 }}
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-          className="relative w-full sm:max-w-5xl max-h-[96vh] overflow-y-auto border flex flex-col lg:flex-row"
+          className="relative w-full sm:max-w-5xl max-h-[96vh] overflow-y-auto lg:overflow-hidden border flex flex-col lg:flex-row"
           style={{
             backgroundColor: 'var(--bg)',
             borderColor: 'var(--border)',
@@ -124,10 +127,12 @@ export default function ProductQuickView({ product: initial, onClose }: Props) {
             <X size={18} />
           </button>
 
-          <div className="lg:w-[55%] shrink-0 p-4 sm:p-5 flex flex-col gap-3">
+          <div className="lg:w-[55%] shrink-0 p-4 sm:p-5 flex flex-col gap-3 lg:sticky lg:top-0 lg:self-start lg:max-h-[96vh] lg:overflow-hidden">
             <div
               className="relative aspect-[4/5] sm:aspect-[3/4] overflow-hidden rounded-2xl"
               style={{ backgroundColor: 'var(--bg2)' }}
+              onMouseEnter={() => setGalleryPaused(true)}
+              onMouseLeave={() => setGalleryPaused(false)}
             >
               <AnimatePresence mode="wait">
                 <motion.div
@@ -186,7 +191,7 @@ export default function ProductQuickView({ product: initial, onClose }: Props) {
             )}
           </div>
 
-          <div className="lg:w-[45%] p-5 sm:p-8 flex flex-col">
+          <div className="lg:w-[45%] p-5 sm:p-8 flex flex-col lg:overflow-y-auto lg:max-h-[96vh] scroll-panel">
             {loading && <p className="text-xs opacity-40 mb-2">Loading…</p>}
 
             <div className="flex flex-wrap items-center gap-2 mb-3">

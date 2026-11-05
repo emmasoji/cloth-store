@@ -113,9 +113,23 @@ async def add_to_cart(
         raise HTTPException(404, "Product not found")
     unit_price = float(prod_data["price"])
 
+    # Prefer variant stock when a variant is selected
     stock = prod_data.get("stock_quantity")
+    if item.variant_id:
+        vres = (
+            sb.table("product_variants")
+            .select("id, stock_quantity, size, colour")
+            .eq("id", item.variant_id)
+            .eq("product_id", item.product_id)
+            .limit(1)
+            .execute()
+        )
+        vrows = _data(vres) or []
+        if not vrows:
+            raise HTTPException(400, "Invalid product option")
+        stock = vrows[0].get("stock_quantity")
     if stock is not None and item.quantity > int(stock):
-        raise HTTPException(400, "Insufficient stock")
+        raise HTTPException(400, "Insufficient stock for this option")
 
     # Existing line item
     q = (

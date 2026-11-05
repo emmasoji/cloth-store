@@ -52,7 +52,50 @@ async def paystack_webhook(
             "event_type": event_type,
             "payload": event,
         }).execute()
-        # TODO: inventory deduction
+        # Inventory: deduct the specific variant (size/colour) sold
+        try:
+            items_res = (
+                sb.table("order_items")
+                .select("id, product_id, variant_id, quantity, size, colour")
+                .eq("order_id", payment["order_id"])
+                .execute()
+            )
+            items = getattr(items_res, "data", None) or []
+            for it in items:
+                qty = int(it.get("quantity") or 0)
+                if qty <= 0:
+                    continue
+                vid = it.get("variant_id")
+                pid = it.get("product_id")
+                if vid:
+                    vres = (
+                        sb.table("product_variants")
+                        .select("id, stock_quantity")
+                        .eq("id", vid)
+                        .limit(1)
+                        .execute()
+                    )
+                    vrows = getattr(vres, "data", None) or []
+                    if vrows:
+                        current = int(vrows[0].get("stock_quantity") or 0)
+                        new_stock = max(0, current - qty)
+                        sb.table("product_variants").update({"stock_quantity": new_stock}).eq("id", vid).execute()
+                if pid:
+                    pres = (
+                        sb.table("products")
+                        .select("id, stock_quantity")
+                        .eq("id", pid)
+                        .limit(1)
+                        .execute()
+                    )
+                    prows = getattr(pres, "data", None) or []
+                    if prows:
+                        current = int(prows[0].get("stock_quantity") or 0)
+                        new_stock = max(0, current - qty)
+                        sb.table("products").update({"stock_quantity": new_stock}).eq("id", pid).execute()
+        except Exception as inv_err:
+            logger.exception("Inventory deduction failed: %s", inv_err)
+
 
     elif event_type in ("charge.failed", "transfer.failed"):
         sb.table("payments").update({"status": "failed"}).eq("id", payment["id"]).execute()
