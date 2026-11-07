@@ -242,50 +242,80 @@ async def admin_delete_product_image(image_id: str):
 
 @router.put("/products/{product_id}/variants")
 async def admin_sync_variants(product_id: str, body: dict):
-    """Replace all variants for a product. body: { items: [{ size, colour, weight, stock_quantity, colour_hex, sku }] }"""
+    """Replace a product's variants, including their gallery image references."""
     sb = get_supabase_admin()
     if not sb:
         raise HTTPException(503, "Database not configured")
+
     items = body.get("items") or body.get("variants") or []
-    # remove existing
-    sb.table("product_variants").delete().eq("product_id", product_id).execute()
-    if not items:
-        return {"items": []}
+
+    # Validate image references before changing existing variants.
+    requested_image_ids = {
+        str(item.get("image_id"))
+        for item in items
+        if item.get("image_id")
+    }
+
+    if requested_image_ids:
+        image_result = (
+            sb.table("product_images")
+            .select("id")
+            .eq("product_id", product_id)
+            .in_("id", list(requested_image_ids))
+            .execute()
+        )
+
+        valid_image_ids = {
+            str(row["id"]) for row in (image_result.data or [])
+        }
+
+        if requested_image_ids != valid_image_ids:
+            raise HTTPException(
+                400,
+                "A selected variant image does not belong to this product."
+            )
+
     rows = []
-    for it in items:
-        colour = (it.get("colour") or it.get("color") or "").strip() or None
-        size = (it.get("size") or "").strip() or None
-        weight_raw = it.get("weight")
-        has_weight = weight_raw is not None and str(weight_raw).strip() != ""
-        # keep row if any identifying field or stock is set
-        stock_val = int(it.get("stock_quantity") or it.get("stock") or 0)
-        if not colour and not size and not has_weight and stock_val <= 0:
+
+    for item in items:
+        colour = (item.get("colour") or item.get("color") or "").strip() or None
+        size = (item.get("size") or "").strip() or None
+
+        weight_raw = item.get("weight")
+        weight = (
+            float(weight_raw)
+            if weight_raw is not None and str(weight_raw).strip()
+            else None
+        )
+
+        stock = int(item.get("stock_quantity") or item.get("stock") or 0)
+
+        image_id = item.get("image_id") or None
+
+        if not any([colour, size, weight is not None, image_id]) and stock <= 0:
             continue
-        row = {
+
+        rows.append({
             "product_id": product_id,
             "size": size,
             "colour": colour,
-            "colour_hex": it.get("colour_hex") or it.get("color_hex") or None,
-            "sku": it.get("sku") or None,
-            "stock_quantity": int(it.get("stock_quantity") or it.get("stock") or 0),
-            "price_adjustment": float(it.get("price_adjustment") or 0),
+            "weight": weight,
+            "image_id": image_id,
+            "colour_hex": item.get("colour_hex") or item.get("color_hex") or None,
+            "sku": item.get("sku") or None,
+            "stock_quantity": stock,
+            "price_adjustment": float(item.get("price_adjustment") or 0),
             "is_active": True,
-        }
-        # weight column if present in DB
-        if it.get("weight") is not None and str(it.get("weight")).strip() != "":
-            try:
-                row["weight"] = float(it["weight"])
-            except (TypeError, ValueError):
-                row["weight"] = None
-        rows.append(row)
+        })
+
+    # Replace only after validation and preparation have succeeded.
+    sb.table("product_variants").delete().eq(
+        "product_id", product_id
+    ).execute()
+
     if not rows:
         return {"items": []}
-    try:
-        result = sb.table("product_variants").insert(rows).execute()
-        return {"items": getattr(result, "data", None) or rows}
-    except Exception as e:
-        # retry without weight if column missing
-        for r in rows:
-            r.pop("weight", None)
-        result = sb.table("product_variants").insert(rows).execute()
-        return {"items": getattr(result, "data", None) or rows, "warning": str(e)}
+
+    result = sb.table("product_variants").insert(rows).execute()
+
+    return {"items": result.data or rows}

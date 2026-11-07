@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef } from "react";
 import {
   Plus,
   Pencil,
@@ -8,68 +8,71 @@ import {
   Image as ImageIcon,
   ChevronLeft,
   ChevronRight,
-} from 'lucide-react'
-import { api } from '../../services/api'
-import { useToast } from '../../contexts/ToastContext'
-import ConfirmDialog from '../components/ConfirmDialog'
+} from "lucide-react";
+import { api } from "../../services/api";
+import { useToast } from "../../contexts/ToastContext";
+import ConfirmDialog from "../components/ConfirmDialog";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const IMAGE_SLOTS = 4
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const IMAGE_SLOTS = 4;
 
 interface ProductOption {
-  id?: string
-  colour: string
-  size: string
-  weight: string
-  stock_quantity: string
+  id?: string;
+  colour: string;
+  size: string;
+  weight: string;
+  stock_quantity: string;
+  image_id?: string;
+  image_key?: string;
 }
 
 interface ProductImage {
-  id?: string
-  url: string
-  is_primary?: boolean
-  localPreview?: boolean
-  file?: File
+  id?: string;
+  url: string;
+  is_primary?: boolean;
+  localPreview?: boolean;
+  file?: File;
+  localKey?: string;
 }
 
 interface ProductRow {
-  id: string
-  name: string
-  slug: string
-  price: number
-  original_price?: number
-  stock_quantity?: number
-  status: string
-  is_featured?: boolean
-  is_trending?: boolean
-  is_active?: boolean
-  category_id?: string
-  description?: string
-  sku?: string
-  categories?: { name: string }
-  product_images?: ProductImage[]
+  id: string;
+  name: string;
+  slug: string;
+  price: number;
+  original_price?: number;
+  stock_quantity?: number;
+  status: string;
+  is_featured?: boolean;
+  is_trending?: boolean;
+  is_active?: boolean;
+  category_id?: string;
+  description?: string;
+  sku?: string;
+  categories?: { name: string };
+  product_images?: ProductImage[];
 }
 
 interface Category {
-  id: string
-  name: string
-  slug: string
+  id: string;
+  name: string;
+  slug: string;
 }
 
 const emptyForm = {
-  name: '',
-  slug: '',
-  sku: '',
-  description: '',
+  name: "",
+  slug: "",
+  sku: "",
+  description: "",
   price: 0,
   original_price: 0,
   stock_quantity: 0,
-  status: 'published',
+  status: "published",
   is_featured: false,
   is_trending: false,
   is_active: true,
-  category_id: '',
-}
+  category_id: "",
+};
 
 function titleCase(s: string) {
   return s
@@ -77,197 +80,229 @@ function titleCase(s: string) {
     .toLowerCase()
     .split(/\s+/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ')
+    .join(" ");
 }
 
 function slugify(s: string) {
   return s
     .toLowerCase()
     .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 export default function ProductsPage() {
-  const [view, setView] = useState<'list' | 'form'>('list')
-  const [items, setItems] = useState<ProductRow[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState<ProductRow | null>(null)
-  const [form, setForm] = useState(emptyForm)
-  const [images, setImages] = useState<ProductImage[]>([])
+  const [view, setView] = useState<"list" | "form">("list");
+  const [items, setItems] = useState<ProductRow[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<ProductRow | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [images, setImages] = useState<ProductImage[]>([]);
   const [options, setOptions] = useState<ProductOption[]>([
-    { colour: '', size: '', weight: '', stock_quantity: '' },
-  ])
-  const [carouselIndex, setCarouselIndex] = useState(0)
-  const [saving, setSaving] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const [catOpen, setCatOpen] = useState(false)
-  const slotInputRefs = useRef<(HTMLInputElement | null)[]>([])
-  const { toast } = useToast()
+    { colour: "", size: "", weight: "", stock_quantity: "" },
+  ]);
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [catOpen, setCatOpen] = useState(false);
+  const slotInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const { toast } = useToast();
 
   const load = () => {
-    setLoading(true)
+    setLoading(true);
     api
-      .get('/api/admin/products?limit=100')
+      .get("/api/admin/products?limit=100")
       .then((d) => {
-        setItems(d?.items || [])
-        setTotal(d?.total || 0)
+        setItems(d?.items || []);
+        setTotal(d?.total || 0);
       })
-      .catch((e) => toast(e.message || 'Failed to load products', 'error'))
-      .finally(() => setLoading(false))
-  }
+      .catch((e) => toast(e.message || "Failed to load products", "error"))
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    load()
-    api.get('/api/categories').then((d) => setCategories(Array.isArray(d) ? d : [])).catch(() => {})
-  }, [])
+    load();
+    api
+      .get("/api/categories")
+      .then((d) => setCategories(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (images.length <= 1) {
-      setCarouselIndex(0)
-      return
+      setCarouselIndex(0);
+      return;
     }
     const t = setInterval(() => {
-      setCarouselIndex((i) => (i + 1) % images.length)
-    }, 4000)
-    return () => clearInterval(t)
-  }, [images.length])
+      setCarouselIndex((i) => (i + 1) % images.length);
+    }, 4000);
+    return () => clearInterval(t);
+  }, [images.length]);
 
   const openCreate = () => {
-    setEditing(null)
-    setForm(emptyForm)
-    setImages([])
-    setOptions([{ colour: '', size: '', weight: '', stock_quantity: '' }])
-    setCarouselIndex(0)
-    setView('form')
-  }
+    setEditing(null);
+    setForm(emptyForm);
+    setImages([]);
+    setOptions([{ colour: "", size: "", weight: "", stock_quantity: "" }]);
+    setCarouselIndex(0);
+    setView("form");
+  };
 
   const openEdit = async (p: ProductRow) => {
-    setEditing(p)
+    setEditing(p);
     setForm({
-      name: p.name || '',
-      slug: p.slug || '',
-      sku: p.sku || '',
-      description: p.description || '',
+      name: p.name || "",
+      slug: p.slug || "",
+      sku: p.sku || "",
+      description: p.description || "",
       price: Number(p.price) || 0,
       original_price: Number(p.original_price) || 0,
       stock_quantity: Number(p.stock_quantity) || 0,
-      status: p.status || 'published',
+      status: p.status || "published",
       is_featured: !!p.is_featured,
       is_trending: !!p.is_trending,
       is_active: p.is_active !== false,
-      category_id: p.category_id || '',
-    })
-    setImages(p.product_images || [])
-    setOptions([{ colour: '', size: '', weight: '', stock_quantity: '' }])
-    setCarouselIndex(0)
-    setView('form')
+      category_id: p.category_id || "",
+    });
+    setImages(p.product_images || []);
+    setOptions([{ colour: "", size: "", weight: "", stock_quantity: "" }]);
+    setCarouselIndex(0);
+    setView("form");
 
     // Always reload full product so variants/images are present
     try {
-      const full = await api.get(`/api/admin/products/${p.id}`)
-      if (!full) return
-      setEditing(full)
+      const full = await api.get(`/api/admin/products/${p.id}`);
+      if (!full) return;
+      setEditing(full);
       setForm({
-        name: full.name || '',
-        slug: full.slug || '',
-        sku: full.sku || '',
-        description: full.description || '',
+        name: full.name || "",
+        slug: full.slug || "",
+        sku: full.sku || "",
+        description: full.description || "",
         price: Number(full.price) || 0,
         original_price: Number(full.original_price) || 0,
         stock_quantity: Number(full.stock_quantity) || 0,
-        status: full.status || 'published',
+        status: full.status || "published",
         is_featured: !!full.is_featured,
         is_trending: !!full.is_trending,
         is_active: full.is_active !== false,
-        category_id: full.category_id || '',
-      })
-      setImages(full.product_images || [])
-      const vars = full.product_variants || []
+        category_id: full.category_id || "",
+      });
+      setImages(full.product_images || []);
+      const vars = full.product_variants || [];
       if (vars.length) {
         setOptions(
           vars.map((v: any) => ({
             id: v.id,
-            colour: v.colour || '',
-            size: v.size || '',
-            weight: v.weight != null ? String(v.weight) : '',
-            stock_quantity: v.stock_quantity != null ? String(v.stock_quantity) : '',
-          }))
-        )
+            colour: v.colour || "",
+            size: v.size || "",
+            weight: v.weight != null ? String(v.weight) : "",
+            stock_quantity:
+              v.stock_quantity != null ? String(v.stock_quantity) : "",
+            image_id: v.image_id || "",
+            image_key: v.image_id ? `id:${v.image_id}` : "",
+          })),
+        );
       } else {
         // fallback: show total stock as one blank option stock if product has stock only
-        const ts = Number(full.stock_quantity) || 0
+        const ts = Number(full.stock_quantity) || 0;
         setOptions([
           {
-            colour: '',
-            size: '',
-            weight: '',
-            stock_quantity: ts ? String(ts) : '',
+            colour: "",
+            size: "",
+            weight: "",
+            stock_quantity: ts ? String(ts) : "",
           },
-        ])
+        ]);
       }
     } catch (e: any) {
-      toast(e?.message || 'Could not load product options', 'error')
+      toast(e?.message || "Could not load product options", "error");
     }
-  }
+  };
 
   const goBack = () => {
-    setView('list')
-    setEditing(null)
-    setImages([])
-    setOptions([{ colour: '', size: '', weight: '', stock_quantity: '' }])
-    setForm(emptyForm)
-  }
+    setView("list");
+    setEditing(null);
+    setImages([]);
+    setOptions([{ colour: "", size: "", weight: "", stock_quantity: "" }]);
+    setForm(emptyForm);
+  };
 
   const addLocalFile = (file: File, slotIndex?: number) => {
-    if (!file.type.startsWith('image/')) {
-      toast('Only images allowed', 'error')
-      return
+    if (!file.type.startsWith("image/")) {
+      toast("Only images allowed", "error");
+      return;
     }
-    const url = URL.createObjectURL(file)
-    const entry: ProductImage = { url, file, localPreview: true, is_primary: images.length === 0 }
-    setImages((prev) => {
-      if (typeof slotIndex === 'number' && slotIndex < prev.length) {
-        const next = [...prev]
-        next[slotIndex] = entry
-        return next
+    const url = URL.createObjectURL(file);
+    const entry: ProductImage = {
+      url,
+      file,
+      localPreview: true,
+      localKey: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      is_primary: images.length === 0,
+    };
+    if (typeof slotIndex === "number" && slotIndex < images.length) {
+      const replaced = images[slotIndex];
+      const oldKey = replaced?.id
+        ? `id:${replaced.id}`
+        : replaced?.localKey
+          ? `local:${replaced.localKey}`
+          : "";
+      if (oldKey) {
+        setOptions((prev) => prev.map((option) =>
+          option.image_key === oldKey
+            ? { ...option, image_key: "", image_id: undefined }
+            : option,
+        ));
       }
-      return [...prev, entry]
-    })
-  }
+    }
+    setImages((prev) => {
+      if (typeof slotIndex === "number" && slotIndex < prev.length) {
+        const next = [...prev];
+        next[slotIndex] = entry;
+        return next;
+      }
+      return [...prev, entry];
+    });
+  };
 
   const uploadFileToProduct = async (file: File, productId: string) => {
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('bucket', 'products')
-    fd.append('product_id', productId)
-    const res = await fetch(`${API_BASE}/api/media/upload`, { method: 'POST', body: fd })
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("bucket", "products");
+    fd.append("product_id", productId);
+    const res = await fetch(`${API_BASE}/api/media/upload`, {
+      method: "POST",
+      body: fd,
+    });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(typeof err.detail === 'string' ? err.detail : 'Upload failed')
+      const err = await res.json().catch(() => ({}));
+      throw new Error(
+        typeof err.detail === "string" ? err.detail : "Upload failed",
+      );
     }
-    const data = await res.json()
+    const data = await res.json();
     const row = await api.post(`/api/admin/products/${productId}/images`, {
       url: data.url,
       is_primary: false,
-    })
-    return { url: data.url as string, id: row?.id as string | undefined }
-  }
+    });
+    return { url: data.url as string, id: row?.id as string | undefined };
+  };
 
   const save = async () => {
     if (!form.name.trim()) {
-      toast('Product name is required', 'error')
-      return
+      toast("Product name is required", "error");
+      return;
     }
     if (images.length < 1) {
-      toast('Add at least one image', 'error')
-      return
+      toast("Add at least one image", "error");
+      return;
     }
-    setSaving(true)
+    setSaving(true);
     const payload: Record<string, unknown> = {
       name: titleCase(form.name),
       slug: form.slug.trim() || slugify(form.name),
@@ -275,103 +310,148 @@ export default function ProductsPage() {
       description: form.description || null,
       price: Number(form.price),
       original_price: form.original_price ? Number(form.original_price) : null,
-      stock_quantity: options.reduce((sum, o) => sum + (Number(o.stock_quantity) || 0), 0),
+      stock_quantity: options.reduce(
+        (sum, o) => sum + (Number(o.stock_quantity) || 0),
+        0,
+      ),
       status: form.status,
       is_featured: form.is_featured,
       is_trending: form.is_trending,
       is_active: form.is_active,
       category_id: form.category_id || null,
-    }
+    };
     try {
-      let productId = editing?.id
+      let productId = editing?.id;
       if (editing) {
-        await api.patch(`/api/admin/products/${editing.id}`, payload)
+        await api.patch(`/api/admin/products/${editing.id}`, payload);
       } else {
-        const created = await api.post('/api/admin/products', payload)
-        productId = created?.id
-        setEditing(created)
+        const created = await api.post("/api/admin/products", payload);
+        productId = created?.id;
+        setEditing(created);
       }
 
-      const pending = images.filter((img) => img.file)
+      const pending = images.filter((img) => img.file);
+      const uploadedIdByLocalKey = new Map<string, string>();
+
       if (productId && pending.length) {
-        setUploading(true)
-        const uploaded: ProductImage[] = images.filter((img) => !img.file)
-        for (let i = 0; i < pending.length; i++) {
-          const up = await uploadFileToProduct(pending[i].file!, productId)
-          uploaded.push({ url: up.url, id: up.id, is_primary: uploaded.length === 0 })
+        setUploading(true);
+        const uploaded: ProductImage[] = [];
+
+        for (const img of images) {
+          if (!img.file) {
+            uploaded.push(img);
+            continue;
+          }
+
+          const up = await uploadFileToProduct(img.file, productId);
+          if (!up.id) {
+            throw new Error("An uploaded image was not saved to the product gallery.");
+          }
+
+          if (img.localKey) uploadedIdByLocalKey.set(img.localKey, up.id);
+          uploaded.push({
+            url: up.url,
+            id: up.id,
+            is_primary: uploaded.length === 0,
+          });
         }
-        setImages(uploaded)
-        setUploading(false)
+
+        setImages(uploaded);
       }
 
-      // Sync product options (colour / size / weight rows)
+      // Save product options only after gallery uploads so every selected image
+      // can be translated into its permanent product_images database ID.
       if (productId) {
         const items = options
-          .filter((o) => o.colour.trim() || o.size.trim() || o.weight.trim())
-          .map((o) => ({
-            colour: o.colour.trim() || null,
-            size: o.size.trim() || null,
-            weight: o.weight.trim() || null,
-            stock_quantity: o.stock_quantity.trim() ? Number(o.stock_quantity) : 0,
-          }))
-        try {
-          await api.put(`/api/admin/products/${productId}/variants`, { items })
-        } catch (ve: any) {
-          toast(ve?.message || 'Product saved, but options failed to save', 'error')
-        }
+          .filter((o) =>
+            o.colour.trim() || o.size.trim() || o.weight.trim() || o.stock_quantity.trim(),
+          )
+          .map((o) => {
+            let imageId = o.image_id || null;
+            if (o.image_key?.startsWith("id:")) {
+              imageId = o.image_key.slice(3) || null;
+            } else if (o.image_key?.startsWith("local:")) {
+              const localKey = o.image_key.slice(6);
+              imageId = uploadedIdByLocalKey.get(localKey) || null;
+            }
+
+            return {
+              colour: o.colour.trim() || null,
+              size: o.size.trim() || null,
+              image_id: imageId,
+              weight: o.weight.trim() ? Number(o.weight) : null,
+              stock_quantity: o.stock_quantity.trim()
+                ? Number(o.stock_quantity)
+                : 0,
+            };
+          });
+
+        await api.patch(`/api/admin/products/${productId}/variants`, { items });
       }
 
-      toast(editing ? 'Product updated' : 'Product created', 'success')
-      load()
-      setView('list')
+      toast(editing ? "Product updated" : "Product created", "success");
+      load();
+      setView("list");
     } catch (e: any) {
-      toast(e?.message || 'Save failed', 'error')
+      toast(e?.message || "Save failed", "error");
     } finally {
-      setSaving(false)
-      setUploading(false)
+      setSaving(false);
+      setUploading(false);
     }
-  }
+  };
 
   const remove = async (id: string) => {
     try {
-      await api.delete(`/api/admin/products/${id}`)
-      toast('Product deleted', 'success')
-      setConfirmDeleteId(null)
-      load()
+      await api.delete(`/api/admin/products/${id}`);
+      toast("Product deleted", "success");
+      setConfirmDeleteId(null);
+      load();
     } catch (e: any) {
-      toast(e?.message || 'Delete failed', 'error')
+      toast(e?.message || "Delete failed", "error");
     }
-  }
+  };
 
   const toggleStatus = async (p: ProductRow) => {
-    const next = p.status === 'published' ? 'draft' : 'published'
+    const next = p.status === "published" ? "draft" : "published";
     try {
-      await api.patch(`/api/admin/products/${p.id}`, { status: next })
-      toast(`Marked as ${next}`, 'success')
-      load()
+      await api.patch(`/api/admin/products/${p.id}`, { status: next });
+      toast(`Marked as ${next}`, "success");
+      load();
     } catch (e: any) {
-      toast(e?.message || 'Update failed', 'error')
+      toast(e?.message || "Update failed", "error");
     }
-  }
+  };
 
   const removeImageAt = async (index: number) => {
-    const img = images[index]
-    if (!img) return
+    const img = images[index];
+    if (!img) return;
     // Persist delete when image already exists in DB
     if (img.id) {
       try {
-        await api.delete(`/api/admin/product-images/${img.id}`)
-        toast('Image removed', 'success')
+        await api.delete(`/api/admin/product-images/${img.id}`);
+        toast("Image removed", "success");
       } catch (e: any) {
-        toast(e?.message || 'Could not delete image', 'error')
-        return
+        toast(e?.message || "Could not delete image", "error");
+        return;
       }
     }
-    setImages((prev) => prev.filter((_, i) => i !== index))
-    setCarouselIndex((i) => Math.max(0, Math.min(i, images.length - 2)))
-  }
+    const imageKey = img.id
+      ? `id:${img.id}`
+      : img.localKey
+        ? `local:${img.localKey}`
+        : "";
+    if (imageKey) {
+      setOptions((prev) => prev.map((option) =>
+        option.image_key === imageKey
+          ? { ...option, image_key: "", image_id: undefined }
+          : option,
+      ));
+    }
+    setImages((prev) => prev.filter((_, i) => i !== index));
+    setCarouselIndex((i) => Math.max(0, Math.min(i, images.length - 2)));
+  };
 
-  if (view === 'list') {
+  if (view === "list") {
     return (
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -379,7 +459,10 @@ export default function ProductsPage() {
             <h1 className="font-display text-2xl">Products</h1>
             <p className="text-sm opacity-50 mt-1">{total} products</p>
           </div>
-          <button onClick={openCreate} className="btn-primary text-xs inline-flex items-center gap-2">
+          <button
+            onClick={openCreate}
+            className="btn-primary text-xs inline-flex items-center gap-2"
+          >
             <Plus size={14} /> Add Product
           </button>
         </div>
@@ -387,7 +470,11 @@ export default function ProductsPage() {
         {loading ? (
           <div className="space-y-2">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-14 animate-pulse rounded-xl" style={{ backgroundColor: 'var(--bg2)' }} />
+              <div
+                key={i}
+                className="h-14 animate-pulse rounded-xl"
+                style={{ backgroundColor: "var(--bg2)" }}
+              />
             ))}
           </div>
         ) : items.length === 0 ? (
@@ -401,54 +488,83 @@ export default function ProductsPage() {
           <div className="surface overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead>
-                <tr className="border-b text-xs tracking-widest uppercase opacity-50" style={{ borderColor: 'var(--border)' }}>
+                <tr
+                  className="border-b text-xs tracking-widest uppercase opacity-50"
+                  style={{ borderColor: "var(--border)" }}
+                >
                   <th className="px-4 py-3 font-medium">Name</th>
-                  <th className="px-4 py-3 font-medium hidden md:table-cell">SKU</th>
+                  <th className="px-4 py-3 font-medium hidden md:table-cell">
+                    SKU
+                  </th>
                   <th className="px-4 py-3 font-medium">Price</th>
-                  <th className="px-4 py-3 font-medium hidden sm:table-cell">Stock</th>
+                  <th className="px-4 py-3 font-medium hidden sm:table-cell">
+                    Stock
+                  </th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((p) => (
-                  <tr key={p.id} className="border-b last:border-0" style={{ borderColor: 'var(--border)' }}>
+                  <tr
+                    key={p.id}
+                    className="border-b last:border-0"
+                    style={{ borderColor: "var(--border)" }}
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div
                           className="w-10 h-12 rounded-lg overflow-hidden shrink-0 flex items-center justify-center opacity-40"
-                          style={{ backgroundColor: 'var(--bg)' }}
+                          style={{ backgroundColor: "var(--bg)" }}
                         >
                           {p.product_images?.[0]?.url ? (
-                            <img src={p.product_images[0].url} alt="" className="w-full h-full object-cover" />
+                            <img
+                              src={p.product_images[0].url}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
                           ) : (
                             <ImageIcon size={14} />
                           )}
                         </div>
                         <div>
                           <div className="font-medium capitalize">{p.name}</div>
-                          <div className="text-xs opacity-50">{p.categories?.name || '—'}</div>
+                          <div className="text-xs opacity-50">
+                            {p.categories?.name || "—"}
+                          </div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 hidden md:table-cell opacity-60">{p.sku || '—'}</td>
-                    <td className="px-4 py-3">₦{Number(p.price).toLocaleString()}</td>
-                    <td className="px-4 py-3 hidden sm:table-cell">{p.stock_quantity ?? 0}</td>
+                    <td className="px-4 py-3 hidden md:table-cell opacity-60">
+                      {p.sku || "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      ₦{Number(p.price).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      {p.stock_quantity ?? 0}
+                    </td>
                     <td className="px-4 py-3">
                       <button
                         onClick={() => toggleStatus(p)}
                         className="text-xs tracking-wide uppercase px-2.5 py-1 border rounded-lg"
-                        style={{ borderColor: 'var(--border)' }}
+                        style={{ borderColor: "var(--border)" }}
                       >
                         {p.status}
                       </button>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
-                        <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg opacity-60 hover:opacity-100">
+                        <button
+                          onClick={() => openEdit(p)}
+                          className="p-1.5 rounded-lg opacity-60 hover:opacity-100"
+                        >
                           <Pencil size={14} />
                         </button>
-                        <button onClick={() => setConfirmDeleteId(p.id)} className="p-1.5 rounded-lg opacity-60 hover:opacity-100">
+                        <button
+                          onClick={() => setConfirmDeleteId(p.id)}
+                          className="p-1.5 rounded-lg opacity-60 hover:opacity-100"
+                        >
                           <Trash2 size={14} />
                         </button>
                       </div>
@@ -469,10 +585,10 @@ export default function ProductsPage() {
           onConfirm={() => confirmDeleteId && remove(confirmDeleteId)}
         />
       </div>
-    )
+    );
   }
 
-  const slotCount = Math.max(IMAGE_SLOTS, images.length + 1)
+  const slotCount = Math.max(IMAGE_SLOTS, images.length + 1);
 
   return (
     <div>
@@ -486,23 +602,42 @@ export default function ProductsPage() {
           <ChevronLeft size={22} />
         </button>
         <div>
-          <h1 className="font-display text-2xl">{editing ? 'Edit Product' : 'Create Product'}</h1>
+          <h1 className="font-display text-2xl">
+            {editing ? "Edit Product" : "Create Product"}
+          </h1>
         </div>
       </div>
 
       <section className="mb-8">
-        <p className="text-xs tracking-widest uppercase opacity-50 mb-3">Images</p>
+        <p className="text-xs tracking-widest uppercase opacity-50 mb-3">
+          Images
+        </p>
 
         {images.length > 1 && (
-          <div className="relative mb-4 rounded-2xl overflow-hidden border" style={{ borderColor: 'var(--border)' }}>
-            <div className="aspect-[16/9] sm:aspect-[21/9]" style={{ backgroundColor: 'var(--bg2)' }}>
-              <img src={images[carouselIndex]?.url} alt="" className="w-full h-full object-contain" />
+          <div
+            className="relative mb-4 rounded-2xl overflow-hidden border"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <div
+              className="aspect-[16/9] sm:aspect-[21/9]"
+              style={{ backgroundColor: "var(--bg2)" }}
+            >
+              <img
+                src={images[carouselIndex]?.url}
+                alt=""
+                className="w-full h-full object-contain"
+              />
             </div>
             <button
               type="button"
               className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full border"
-              style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)' }}
-              onClick={() => setCarouselIndex((i) => (i - 1 + images.length) % images.length)}
+              style={{
+                backgroundColor: "var(--bg)",
+                borderColor: "var(--border)",
+              }}
+              onClick={() =>
+                setCarouselIndex((i) => (i - 1 + images.length) % images.length)
+              }
               aria-label="Previous image"
             >
               <ChevronLeft size={18} />
@@ -510,7 +645,10 @@ export default function ProductsPage() {
             <button
               type="button"
               className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full border"
-              style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)' }}
+              style={{
+                backgroundColor: "var(--bg)",
+                borderColor: "var(--border)",
+              }}
               onClick={() => setCarouselIndex((i) => (i + 1) % images.length)}
               aria-label="Next image"
             >
@@ -524,7 +662,7 @@ export default function ProductsPage() {
                   onClick={() => setCarouselIndex(i)}
                   className="w-2 h-2 rounded-full transition-opacity"
                   style={{
-                    backgroundColor: 'var(--text)',
+                    backgroundColor: "var(--text)",
                     opacity: i === carouselIndex ? 1 : 0.3,
                   }}
                   aria-label={`Image ${i + 1}`}
@@ -536,25 +674,31 @@ export default function ProductsPage() {
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {Array.from({ length: slotCount }).map((_, index) => {
-            const img = images[index]
+            const img = images[index];
             return (
-              <div key={index} className="relative aspect-square">
+              <div key={img?.id || img?.localKey || `empty-${index}`} className="relative aspect-square">
                 <button
                   type="button"
                   onClick={() => slotInputRefs.current[index]?.click()}
                   className="w-full h-full rounded-xl border flex flex-col items-center justify-center gap-2 transition-colors overflow-hidden"
                   style={{
-                    borderColor: 'var(--border)',
-                    backgroundColor: 'var(--bg2)',
-                    borderStyle: img ? 'solid' : 'dashed',
+                    borderColor: "var(--border)",
+                    backgroundColor: "var(--bg2)",
+                    borderStyle: img ? "solid" : "dashed",
                   }}
                 >
                   {img ? (
-                    <img src={img.url} alt="" className="w-full h-full object-cover" />
+                    <img
+                      src={img.url}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     <>
                       <Plus size={22} className="opacity-40" />
-                      <span className="text-[10px] tracking-widest uppercase opacity-40">Add</span>
+                      <span className="text-[10px] tracking-widest uppercase opacity-40">
+                        Add
+                      </span>
                     </>
                   )}
                 </button>
@@ -563,7 +707,10 @@ export default function ProductsPage() {
                     type="button"
                     onClick={() => removeImageAt(index)}
                     className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full text-xs flex items-center justify-center"
-                    style={{ backgroundColor: 'var(--btn)', color: 'var(--btn-text)' }}
+                    style={{
+                      backgroundColor: "var(--btn)",
+                      color: "var(--btn-text)",
+                    }}
                     aria-label="Remove image"
                   >
                     ×
@@ -571,26 +718,28 @@ export default function ProductsPage() {
                 )}
                 <input
                   ref={(el) => {
-                    slotInputRefs.current[index] = el
+                    slotInputRefs.current[index] = el;
                   }}
                   type="file"
                   accept="image/*,.avif,.heic,.heif,image/avif"
                   className="hidden"
                   onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) addLocalFile(file, img ? index : undefined)
-                    e.target.value = ''
+                    const file = e.target.files?.[0];
+                    if (file) addLocalFile(file, img ? index : undefined);
+                    e.target.value = "";
                   }}
                 />
               </div>
-            )
+            );
           })}
         </div>
       </section>
 
       <div className="space-y-4 max-w-xl">
         <label className="block">
-          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Product Name *</span>
+          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">
+            Product Name *
+          </span>
           <input
             value={form.name}
             onChange={(e) =>
@@ -604,58 +753,88 @@ export default function ProductsPage() {
           />
         </label>
         <label className="block">
-          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Price (NGN) *</span>
+          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">
+            Price (NGN) *
+          </span>
           <input
             type="text"
             inputMode="decimal"
-            value={form.price || ''}
+            value={form.price || ""}
             onChange={(e) => {
-              const v = e.target.value.replace(/[^0-9.]/g, '')
-              setForm((f) => ({ ...f, price: v === '' ? 0 : Number(v) }))
+              const v = e.target.value.replace(/[^0-9.]/g, "");
+              setForm((f) => ({ ...f, price: v === "" ? 0 : Number(v) }));
             }}
             className="field"
           />
         </label>
         <div className="grid grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Total stock</span>
+            <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">
+              Total stock
+            </span>
             <input
               type="text"
               readOnly
               disabled
-              value={options.reduce((sum, o) => sum + (Number(o.stock_quantity) || 0), 0)}
+              value={options.reduce(
+                (sum, o) => sum + (Number(o.stock_quantity) || 0),
+                0,
+              )}
               className="field opacity-70 cursor-not-allowed"
             />
           </label>
           <label className="block">
-            <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">SKU</span>
-            <input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} className="field" />
+            <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">
+              SKU
+            </span>
+            <input
+              value={form.sku}
+              onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))}
+              className="field"
+            />
           </label>
         </div>
         <div className="block relative">
-          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Category</span>
+          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">
+            Category
+          </span>
           <button
             type="button"
             onClick={() => setCatOpen((o) => !o)}
             className="field w-full text-left flex items-center justify-between"
           >
-            <span className={form.category_id ? '' : 'opacity-50'}>
-              {categories.find((c) => c.id === form.category_id)?.name || 'Select category'}
+            <span className={form.category_id ? "" : "opacity-50"}>
+              {categories.find((c) => c.id === form.category_id)?.name ||
+                "Select category"}
             </span>
             <span className="opacity-40 text-xs">▼</span>
           </button>
           {catOpen && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setCatOpen(false)} />
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setCatOpen(false)}
+              />
               <div
                 className="absolute z-20 left-0 right-0 mt-1 border py-1 max-h-48 overflow-y-auto"
-                style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)', borderRadius: 'var(--radius-sm)' }}
+                style={{
+                  backgroundColor: "var(--bg)",
+                  borderColor: "var(--border)",
+                  borderRadius: "var(--radius-sm)",
+                }}
               >
                 <button
                   type="button"
                   className="block w-full text-left px-3.5 py-2.5 text-sm opacity-60 hover:opacity-100"
-                  style={{ backgroundColor: !form.category_id ? 'var(--bg2)' : 'transparent' }}
-                  onClick={() => { setForm((f) => ({ ...f, category_id: '' })); setCatOpen(false) }}
+                  style={{
+                    backgroundColor: !form.category_id
+                      ? "var(--bg2)"
+                      : "transparent",
+                  }}
+                  onClick={() => {
+                    setForm((f) => ({ ...f, category_id: "" }));
+                    setCatOpen(false);
+                  }}
                 >
                   None
                 </button>
@@ -664,8 +843,17 @@ export default function ProductsPage() {
                     key={c.id}
                     type="button"
                     className="block w-full text-left px-3.5 py-2.5 text-sm hover:opacity-100"
-                    style={{ backgroundColor: form.category_id === c.id ? 'var(--bg2)' : 'transparent', opacity: form.category_id === c.id ? 1 : 0.7 }}
-                    onClick={() => { setForm((f) => ({ ...f, category_id: c.id })); setCatOpen(false) }}
+                    style={{
+                      backgroundColor:
+                        form.category_id === c.id
+                          ? "var(--bg2)"
+                          : "transparent",
+                      opacity: form.category_id === c.id ? 1 : 0.7,
+                    }}
+                    onClick={() => {
+                      setForm((f) => ({ ...f, category_id: c.id }));
+                      setCatOpen(false);
+                    }}
                   >
                     {c.name}
                   </button>
@@ -675,43 +863,58 @@ export default function ProductsPage() {
           )}
         </div>
 
-
         <div>
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs tracking-widest uppercase opacity-50">Product options</span>
+            <span className="text-xs tracking-widest uppercase opacity-50">
+              Product options
+            </span>
             <button
               type="button"
               onClick={() =>
-                setOptions((prev) => [...prev, { colour: '', size: '', weight: '', stock_quantity: '' }])
+                setOptions((prev) => [
+                  ...prev,
+                  { colour: "", size: "", weight: "", stock_quantity: "" },
+                ])
               }
               className="text-[11px] tracking-widest uppercase opacity-60 hover:opacity-100 inline-flex items-center gap-1"
             >
               <Plus size={12} /> Add row
             </button>
           </div>
-          <div className="border rounded-xl overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+          <div
+            className="border rounded-xl overflow-hidden"
+            style={{ borderColor: "var(--border)" }}
+          >
             <div
-              className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 px-3 py-2 text-[10px] tracking-widest uppercase opacity-50 border-b"
-              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg2)' }}
+              className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] gap-2 px-3 py-2 text-[10px] tracking-widest uppercase opacity-50 border-b"
+              style={{
+                borderColor: "var(--border)",
+                backgroundColor: "var(--bg2)",
+              }}
             >
               <span>Colour</span>
               <span>Size</span>
               <span>Weight</span>
               <span>Stock</span>
+              <span>Image</span>
               <span />
             </div>
             {options.map((row, idx) => (
               <div
                 key={idx}
-                className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 px-3 py-2 items-center border-b last:border-0"
-                style={{ borderColor: 'var(--border)' }}
+                className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(110px,1fr)_auto] gap-2 px-3 py-2 items-center border-b last:border-0"
+                style={{ borderColor: "var(--border)" }}
               >
                 <input
                   className="field py-1.5 text-sm"
                   placeholder="e.g. Black"
                   value={row.colour}
                   onChange={(e) =>
-                    setOptions((prev) => prev.map((r, i) => (i === idx ? { ...r, colour: e.target.value } : r)))
+                    setOptions((prev) =>
+                      prev.map((r, i) =>
+                        i === idx ? { ...r, colour: e.target.value } : r,
+                      ),
+                    )
                   }
                 />
                 <input
@@ -719,7 +922,11 @@ export default function ProductsPage() {
                   placeholder="e.g. M"
                   value={row.size}
                   onChange={(e) =>
-                    setOptions((prev) => prev.map((r, i) => (i === idx ? { ...r, size: e.target.value } : r)))
+                    setOptions((prev) =>
+                      prev.map((r, i) =>
+                        i === idx ? { ...r, size: e.target.value } : r,
+                      ),
+                    )
                   }
                 />
                 <input
@@ -730,8 +937,13 @@ export default function ProductsPage() {
                   onChange={(e) =>
                     setOptions((prev) =>
                       prev.map((r, i) =>
-                        i === idx ? { ...r, weight: e.target.value.replace(/[^0-9.]/g, '') } : r
-                      )
+                        i === idx
+                          ? {
+                              ...r,
+                              weight: e.target.value.replace(/[^0-9.]/g, ""),
+                            }
+                          : r,
+                      ),
                     )
                   }
                 />
@@ -743,11 +955,53 @@ export default function ProductsPage() {
                   onChange={(e) =>
                     setOptions((prev) =>
                       prev.map((r, i) =>
-                        i === idx ? { ...r, stock_quantity: e.target.value.replace(/[^0-9]/g, '') } : r
-                      )
+                        i === idx
+                          ? {
+                              ...r,
+                              stock_quantity: e.target.value.replace(
+                                /[^0-9]/g,
+                                "",
+                              ),
+                            }
+                          : r,
+                      ),
                     )
                   }
                 />
+                <select
+                  className="field py-1.5 text-sm min-w-0"
+                  value={row.image_key || (row.image_id ? `id:${row.image_id}` : "")}
+                  onChange={(e) =>
+                    setOptions((prev) =>
+                      prev.map((r, i) =>
+                        i === idx
+                          ? {
+                              ...r,
+                              image_key: e.target.value,
+                              image_id: e.target.value.startsWith("id:")
+                                ? e.target.value.slice(3)
+                                : undefined,
+                            }
+                          : r,
+                      ),
+                    )
+                  }
+                >
+                  <option value="">Default</option>
+                  {images.map((img, imageIndex) => {
+                    const value = img.id
+                      ? `id:${img.id}`
+                      : img.localKey
+                        ? `local:${img.localKey}`
+                        : "";
+                    if (!value) return null;
+                    return (
+                      <option key={value} value={value}>
+                        Image {imageIndex + 1}{img.file ? " (will upload)" : ""}
+                      </option>
+                    );
+                  })}
+                </select>
                 <button
                   type="button"
                   className="p-1.5 opacity-50 hover:opacity-100"
@@ -755,8 +1009,15 @@ export default function ProductsPage() {
                   onClick={() =>
                     setOptions((prev) =>
                       prev.length <= 1
-                        ? [{ colour: '', size: '', weight: '', stock_quantity: '' }]
-                        : prev.filter((_, i) => i !== idx)
+                        ? [
+                            {
+                              colour: "",
+                              size: "",
+                              weight: "",
+                              stock_quantity: "",
+                            },
+                          ]
+                        : prev.filter((_, i) => i !== idx),
                     )
                   }
                 >
@@ -768,38 +1029,69 @@ export default function ProductsPage() {
         </div>
 
         <label className="block">
-          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">Description</span>
+          <span className="text-xs tracking-widest uppercase opacity-50 mb-1.5 block">
+            Description
+          </span>
           <textarea
             rows={4}
             value={form.description}
-            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, description: e.target.value }))
+            }
             className="field resize-none"
           />
         </label>
         <div className="flex flex-wrap gap-4 text-sm">
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.is_featured} onChange={(e) => setForm((f) => ({ ...f, is_featured: e.target.checked }))} />
+            <input
+              type="checkbox"
+              checked={form.is_featured}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, is_featured: e.target.checked }))
+              }
+            />
             Featured
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.is_trending} onChange={(e) => setForm((f) => ({ ...f, is_trending: e.target.checked }))} />
+            <input
+              type="checkbox"
+              checked={form.is_trending}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, is_trending: e.target.checked }))
+              }
+            />
             Trending
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} />
+            <input
+              type="checkbox"
+              checked={form.is_active}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, is_active: e.target.checked }))
+              }
+            />
             Active
           </label>
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button onClick={save} disabled={saving || uploading || images.length < 1} className="btn-primary text-xs inline-flex items-center gap-2">
-            <Check size={14} /> {saving || uploading ? 'Saving…' : 'Save product'}
+          <button
+            onClick={save}
+            disabled={saving || uploading || images.length < 1}
+            className="btn-primary text-xs inline-flex items-center gap-2"
+          >
+            <Check size={14} />{" "}
+            {saving || uploading ? "Saving…" : "Save product"}
           </button>
-          <button type="button" onClick={goBack} className="btn-outline text-xs">
+          <button
+            type="button"
+            onClick={goBack}
+            className="btn-outline text-xs"
+          >
             Cancel
           </button>
         </div>
       </div>
     </div>
-  )
+  );
 }

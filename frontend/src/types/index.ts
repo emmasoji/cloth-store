@@ -30,6 +30,9 @@ export interface ProductVariant {
   colour_hex?: string
   stock_quantity: number
   price_adjustment?: number
+  weight?: number
+  image_id?: string
+  sku?: string
 }
 
 export interface Category {
